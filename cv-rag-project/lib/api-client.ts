@@ -16,11 +16,10 @@ interface RegisterData {
 
 export class APIClient {
   private static token: string | null = null;
-
   static setToken(token: string) {
     this.token = token;
     // Set default authorization header for all future requests
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    axios.defaults.headers.common['Authorization'] = token;
   }
 
   static clearToken() {
@@ -29,34 +28,43 @@ export class APIClient {
   }
 
   static getAuthHeaders() {
-    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+    return this.token ? { Authorization: this.token } : {};
   }
 
-  static async register(data: RegisterData) {
+  static async register(username: string, email: string, password: string) {
     try {
       const formData = new FormData();
-      formData.append('username', data.username);
-      formData.append('password', data.password);
-      formData.append('email', data.email);
-
-      const response = await axios.post(`${API_BASE_URL}/register`, formData);
-      return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError) {
-        throw new Error(error.response?.data?.detail || 'Registration failed');
+      formData.append('username', username);
+      formData.append('email', email);
+      formData.append('password', password);
+      
+      const response = await fetch('http://localhost:8000/api/register', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Registration failed: ${response.status}`);
       }
+      
+      return data;
+    } catch (error) {
       console.error('Registration error:', error);
       throw error;
     }
-  }
-
-  static async login(credentials: LoginCredentials) {
+  }  static async login(credentials: LoginCredentials) {
     try {
+      console.log('Attempting to login to:', `${API_BASE_URL}/api/login`);
+      
       const formData = new FormData();
       formData.append('username', credentials.username);
       formData.append('password', credentials.password);
 
-      const response = await axios.post(`${API_BASE_URL}/login`, formData);
+      const response = await axios.post(`${API_BASE_URL}/api/login`, formData);
+      
+      console.log('Login response:', response.status, response.data);
       
       // Store the session ID as the token
       if (response.data.session_id) {
@@ -66,7 +74,16 @@ export class APIClient {
       return response.data;
     } catch (error) {
       if (error instanceof AxiosError) {
-        throw new Error(error.response?.data?.detail || 'Login failed');
+        console.error('Login error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          config: {
+            url: error.config?.url,
+            method: error.config?.method,
+          }
+        });
+        throw new Error(error.response?.data?.detail || `Login failed: ${error.response?.status}`);
       }
       console.error('Login error:', error);
       throw error;

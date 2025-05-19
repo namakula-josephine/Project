@@ -13,21 +13,17 @@ export const metadata = {
   description: "AI-powered potato plant disease detection and treatment assistant",
 }
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const session = await getServerSession(authOptions)
-
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <SessionProvider session={session}>
-          {children}
-        </SessionProvider>
+    <html lang="en">
+      <body className="__className_d65c78" suppressHydrationWarning={true}>
+        {children}
       </body>
     </html>
-  )
+  );
 }
 

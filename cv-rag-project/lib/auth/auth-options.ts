@@ -38,19 +38,19 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid credentials");
         }
 
-        try {
+        try {          
           const response = await APIClient.login({
             username: credentials.username,
             password: credentials.password,
           });
 
-          if (response.access_token) {
-            APIClient.setToken(response.access_token);
+          if (response.session_id) {
+            APIClient.setToken(response.session_id);
             return {
               id: credentials.username,
               name: credentials.username,
               username: credentials.username,
-              accessToken: response.access_token,
+              accessToken: response.session_id, // Using session_id as the access token
             };
           }
           return null;

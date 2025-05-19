@@ -23,15 +23,10 @@ export default function SignUpForm() {
     }
 
     setIsLoading(true)
-    setError("")
-
+    setError("");
     try {
       // Register the user
-      await APIClient.register({
-        username,
-        email,
-        password,
-      })
+      await APIClient.register(username, email, password)
 
       // Sign in the user
       const result = await signIn("credentials", {
