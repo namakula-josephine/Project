@@ -40,7 +40,7 @@ const TabButton: React.FC<TabButtonProps> = ({
   <button
     {...props}
     role="tab"
-    aria-selected={isSelected}
+    aria-selected={isSelected ? "true" : "false"}
     aria-controls={`${id}-panel`}
     className={`tab-button ${isSelected ? "active" : ""}`}
     onClick={onSelect}
@@ -395,13 +395,44 @@ export default function ChatInterface() {
 
   // Render message
   const renderMessage = (message: Message, index: number) => {
+    const formatContent = (content: string | undefined) => {
+      if (!content) return null;
+      
+      // Split content into paragraphs
+      const paragraphs = content.split('\n\n');
+      
+      // Process each paragraph
+      return paragraphs.map((paragraph, pIndex) => {
+        // Check if paragraph is a numbered list
+        if (/^\d+\.\s/.test(paragraph)) {
+          const listItems = paragraph.split('\n');
+          return (
+            <div key={pIndex} className="message-paragraph">
+              {listItems.map((item, i) => (
+                <div key={i} className="list-item">
+                  {item}
+                </div>
+              ))}
+            </div>
+          );
+        }
+        
+        // Regular paragraph
+        return (
+          <div key={pIndex} className="message-paragraph">
+            {paragraph}
+          </div>
+        );
+      });
+    };
+
     return (
       <div key={index} className={`message ${message.role === "user" ? "user-message" : "assistant-message"}`}>
         <div className="message-avatar">
           {message.role === "user" ? "👤" : message.role === "system" ? "⚙️" : "🤖"}
         </div>
         <div className="message-content">
-          <p>{message.content}</p>
+          {formatContent(message.content)}
 
           {message.error && (
             <div className="message-error">
@@ -426,10 +457,16 @@ export default function ChatInterface() {
                 <strong>Confidence:</strong> {message.result.confidence}
               </div>
               <div className="result-item">
-                <strong>Explanation:</strong> {message.result.explanation}
+                <strong>Explanation:</strong>
+                <div className="explanation-content">
+                  {formatContent(message.result.explanation)}
+                </div>
               </div>
               <div className="result-item">
-                <strong>Treatment Plans:</strong> {message.result.treatment_plans}
+                <strong>Treatment Plans:</strong>
+                <div className="treatment-content">
+                  {formatContent(message.result.treatment_plans)}
+                </div>
               </div>
             </div>
           )}
@@ -483,6 +520,115 @@ export default function ChatInterface() {
 
   return (
     <ErrorBoundary>
+      <style jsx>{`
+        /* Input form styles */
+        .input-form {
+          width: 100%;
+          padding: 1rem;
+        }
+        .input-container {
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+          width: 100%;
+        }
+        .input-wrapper {
+          flex: 1;
+          min-width: 0;
+        }
+        .chat-input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          border: 1px solid #e2e8f0;
+          border-radius: 0.5rem;
+          font-size: 1rem;
+          line-height: 1.5;
+          transition: border-color 0.2s;
+        }
+        .chat-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+        .button-wrapper {
+          flex-shrink: 0;
+        }
+        .send-button {
+          padding: 0.75rem 1.5rem;
+          background-color: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 0.5rem;
+          font-size: 1rem;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+        .send-button:hover:not(:disabled) {
+          background-color: #2563eb;
+        }
+        .send-button:disabled {
+          background-color: #93c5fd;
+          cursor: not-allowed;
+        }
+
+        /* Message styles */
+        .message {
+          margin-bottom: 1.5rem;
+          padding: 1rem;
+          border-radius: 0.5rem;
+        }
+        .message-content {
+          margin-left: 1rem;
+        }
+        .message-paragraph {
+          margin-bottom: 1rem;
+          line-height: 1.6;
+        }
+        .message-paragraph:last-child {
+          margin-bottom: 0;
+        }
+        .list-item {
+          margin-left: 1.5rem;
+          margin-bottom: 0.5rem;
+          position: relative;
+        }
+        .list-item:last-child {
+          margin-bottom: 0;
+        }
+        .message-result {
+          margin-top: 1rem;
+          padding: 1rem;
+          background-color: rgba(0, 0, 0, 0.03);
+          border-radius: 0.5rem;
+        }
+        .result-item {
+          margin-bottom: 1rem;
+        }
+        .result-item:last-child {
+          margin-bottom: 0;
+        }
+        .explanation-content,
+        .treatment-content {
+          margin-top: 0.5rem;
+          padding-left: 1rem;
+          border-left: 2px solid #e2e8f0;
+        }
+        .message-error {
+          margin-top: 1rem;
+          padding: 1rem;
+          background-color: #fee2e2;
+          border-radius: 0.5rem;
+          color: #991b1b;
+        }
+        .error-data {
+          margin-top: 0.5rem;
+          padding: 0.5rem;
+          background-color: rgba(0, 0, 0, 0.05);
+          border-radius: 0.25rem;
+          font-family: monospace;
+          white-space: pre-wrap;
+        }
+      `}</style>
       <div className="app">
         <Sidebar
           currentChatTitle={currentChatTitle}
@@ -592,26 +738,30 @@ export default function ChatInterface() {
               hidden={activeTab !== "text"}
             >
               <form onSubmit={handleSubmit} className="input-form">
-                <div className="input-wrapper">
-                  <label htmlFor="chat-input" className="sr-only">Type your message</label>
-                  <input
-                    id="chat-input"
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Type your question here..."
-                    disabled={loading || activeTab !== "text"}
-                    className="chat-input"
-                    aria-label="Chat input"
-                  />
-                  <button 
-                    type="submit" 
-                    disabled={loading || !input.trim() || activeTab !== "text"} 
-                    className="send-button"
-                    aria-label="Send message"
-                  >
-                    <span aria-hidden="true">➤</span>
-                  </button>
+                <div className="input-container">
+                  <div className="input-wrapper">
+                    <label htmlFor="chat-input" className="sr-only">Type your message</label>
+                    <input
+                      id="chat-input"
+                      type="text"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Type your question here..."
+                      disabled={loading || activeTab !== "text"}
+                      className="chat-input"
+                      aria-label="Chat input"
+                    />
+                  </div>
+                  <div className="button-wrapper">
+                    <button 
+                      type="submit" 
+                      disabled={loading || !input.trim() || activeTab !== "text"} 
+                      className="send-button"
+                      aria-label="Send message"
+                    >
+                      <span aria-hidden="true">➤</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
