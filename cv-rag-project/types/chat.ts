@@ -16,10 +16,10 @@ export interface Message {
 }
 
 export interface Chat {
-  id: string;
+  chat_id: string;
   title: string;
-  description: string;
-  timestamp?: string;
-  messages: Message[];
+  created_at: string;
+  last_message?: string;
+  message_count: number;
 }
 

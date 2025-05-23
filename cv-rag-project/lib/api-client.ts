@@ -1,234 +1,176 @@
-import axios, { AxiosError } from 'axios';
-import type { Chat, Message } from '@/types/chat';
+import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000';
+const BASE_URL = 'http://localhost:8000';
 
-interface LoginCredentials {
-  username: string;
-  password: string;
-}
+const api = axios.create({
+  baseURL: BASE_URL,
+  withCredentials: true,
+  validateStatus: (status) => status < 500,
+});
 
-interface RegisterData {
-  username: string;
-  password: string;
-  email: string;
-}
+// Safe localStorage access
+const getLocalStorageItem = (key: string): string | null => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(key);
+  }
+  return null;
+};
+
+const setLocalStorageItem = (key: string, value: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(key, value);
+  }
+};
+
+const removeLocalStorageItem = (key: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(key);
+  }
+};
+
+api.interceptors.request.use((config) => {
+  const authToken = getLocalStorageItem('potato_assistant_token');
+  
+  if (authToken) {
+    config.headers['Authorization'] = `Basic ${authToken}`;
+  }
+  
+  return config;
+});
 
 export class APIClient {
   private static token: string | null = null;
+
+  private static isClient() {
+    return typeof window !== 'undefined';
+  }
+
   static setToken(token: string) {
     this.token = token;
-    // Set default authorization header for all future requests
-    axios.defaults.headers.common['Authorization'] = token;
+    setLocalStorageItem('potato_assistant_token', token);
   }
 
   static clearToken() {
     this.token = null;
-    delete axios.defaults.headers.common['Authorization'];
+    removeLocalStorageItem('potato_assistant_token');
+  }
+  
+  static getToken() {
+    if (!this.token) {
+      this.token = getLocalStorageItem('potato_assistant_token');
+    }
+    return this.token;
   }
 
   static getAuthHeaders() {
-    return this.token ? { Authorization: this.token } : {};
+    const token = this.getToken();
+    return token ? { Authorization: `Basic ${token}` } : {};
   }
 
-  static async register(username: string, email: string, password: string) {
+  static register = async (username: string, email: string, password: string) => {
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('email', email);
+    params.append('password', password);
+    
+    const response = await api.post('/api/register', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+    
+    const token = btoa(`${username}:${password}`);
+    this.setToken(token);
+    
+    return response.data;
+  };
+
+  static login = async (credentials: { username: string; password: string }) => {
+    const token = btoa(`${credentials.username}:${credentials.password}`);
+    
     try {
-      const formData = new FormData();
-      formData.append('username', username);
-      formData.append('email', email);
-      formData.append('password', password);
-      
-      const response = await fetch('http://localhost:8000/api/register', {
-        method: 'POST',
-        body: formData
+      const response = await api.post('/api/login', null, {
+        headers: {
+          'Authorization': `Basic ${token}`
+        }
       });
       
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || `Registration failed: ${response.status}`);
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('Registration error:', error);
-      throw error;
-    }
-  }  static async login(credentials: LoginCredentials) {
-    try {
-      console.log('Attempting to login to:', `${API_BASE_URL}/api/login`);
-      
-      const formData = new FormData();
-      formData.append('username', credentials.username);
-      formData.append('password', credentials.password);
-
-      const response = await axios.post(`${API_BASE_URL}/api/login`, formData);
-      
-      console.log('Login response:', response.status, response.data);
-      
-      // Store the session ID as the token
-      if (response.data.session_id) {
-        this.setToken(response.data.session_id);
-      }
-      
+      this.setToken(token);
       return response.data;
     } catch (error) {
-      if (error instanceof AxiosError) {
-        console.error('Login error details:', {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          config: {
-            url: error.config?.url,
-            method: error.config?.method,
-          }
-        });
-        throw new Error(error.response?.data?.detail || `Login failed: ${error.response?.status}`);
-      }
-      console.error('Login error:', error);
+      this.clearToken();
       throw error;
     }
   }
 
   static async logout() {
-    try {
-      if (!this.token) {
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('session_id', this.token);
-
-      await axios.post(`${API_BASE_URL}/logout`, formData);
-      this.clearToken();
-    } catch (error) {
-      console.error('Logout error:', error);
-      // Clear token even if logout fails
-      this.clearToken();
-      throw error;
-    }
+    this.clearToken();
+    return { success: true, message: 'Successfully logged out' };
   }
 
-  static async getChatHistory(sessionId: string) {
-    try {
-      console.log('[APIClient] Getting chat history with token:', this.token);
-      const response = await axios.get(`${API_BASE_URL}/chat-history`, {
-        params: { session_id: sessionId },
-        headers: this.getAuthHeaders(),
+  static async getCurrentUser() {
+    const response = await api.get('/api/me');
+    return response.data;
+  }
+
+  static async getChatHistory(chatId: string) {
+    const response = await api.get(`/api/chats/${chatId}`);
+    return response.data;
+  }
+
+  static async queryDocument(question: string, image?: File, chatId?: string) {
+    const formData = new FormData();
+    if (question) formData.append('question', question);
+    if (image) formData.append('image', image);
+    if (chatId) formData.append('chat_id', chatId);
+
+    const response = await api.post('/api/query', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  }  static async saveChatMessage(chatId: string, message: { 
+    content: string; 
+    role: string; 
+    result?: {
+      predicted_class?: string;
+      confidence?: string;
+      explanation?: string;
+      treatment_plans?: string;
+    };
+  }) {
+    if (message.role === 'user') {
+      // For user messages, use queryDocument to get AI response
+      return this.queryDocument(message.content, undefined, chatId);
+    } else {
+      // For assistant messages, save with full data including any result fields
+      const response = await api.post(`/api/chats/${chatId}/messages`, {
+        content: message.content,
+        role: message.role,
+        result: message.result
       });
       return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError && error.response?.status === 401) {
-        console.error('Authentication token expired or invalid');
-        throw new Error('Please log in again');
-      }
-      console.error('Error fetching chat history:', error);
-      return { messages: [] };
     }
   }
 
-  static async queryDocument(data: FormData) {
-    try {
-      const response = await axios.post(`${API_BASE_URL}/query`, data, {
-        headers: {
-          ...this.getAuthHeaders(),
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError) {
-        if (error.response?.status === 401) {
-          throw new Error('Please log in to use this feature');
-        }
-        throw new Error(error.response?.data?.detail || 'Error querying document');
-      }
-      console.error('Error querying document:', error);
-      throw error;
-    }
-  }
-
-  static async saveChatMessage(sessionId: string, message: Message) {
-    try {
-      // Convert message to FormData as backend expects Form data
-      const formData = new FormData();
-      formData.append('message', message.content);
-
-      const response = await axios.post(
-        `${API_BASE_URL}/${sessionId}/messages`,
-        formData,
-        {
-          headers: {
-            ...this.getAuthHeaders(),
-            // Content-Type will be set automatically for FormData
-          },
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError) {
-        if (error.response?.status === 401) {
-          throw new Error('Please log in again to continue chatting');
-        }
-        if (error.response?.status === 404) {
-          throw new Error('Chat session not found');
-        }
-        throw new Error(error.response?.data?.detail || 'Failed to save message');
-      }
-      console.error('Error saving chat message:', error);
-      throw error;
-    }
-  }
-
-  static async createChatSession(title: string, sessionId: string) {
-    try {
-      const formData = new FormData();
-      formData.append('title', title);
-      formData.append('session_id', sessionId);
-
-      const response = await axios.post(
-        `${API_BASE_URL}/chat-sessions`,
-        formData,
-        {
-          headers: this.getAuthHeaders(),
-        }
-      );
-      return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError && error.response?.status === 401) {
-        throw new Error('Please log in to create a chat session');
-      }
-      console.error('Error creating chat session:', error);
-      throw error;
-    }
+  static async createChatSession(title: string) {
+    const response = await api.post('/api/chats/', { title });
+    return response.data;
   }
 
   static async getChatSessions() {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/chat-sessions`, {
-        headers: this.getAuthHeaders(),
-      });
-      return response.data;
-    } catch (error) {
-      if (error instanceof AxiosError && error.response?.status === 401) {
-        throw new Error('Please log in to view chat sessions');
-      }
-      console.error('Error fetching chat sessions:', error);
-      return { sessions: [] };
-    }
+    const response = await api.get('/api/chats/');
+    return response.data;
   }
 
-  static async clearChatHistory(sessionId: string) {
-    try {
-      const response = await axios.delete(`${API_BASE_URL}/chat-history`, {
-        params: { session_id: sessionId },
-        headers: this.getAuthHeaders(),
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error clearing chat history:', error);
-      return { success: false };
-    }
+  static async updateChatSession(chatId: string, title: string) {
+    const response = await api.put(`/api/chats/${chatId}`, { title });
+    return response.data;
+  }
+
+  static async deleteChatSession(chatId: string) {
+    const response = await api.delete(`/api/chats/${chatId}`);
+    return response.data;
   }
 }

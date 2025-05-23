@@ -25,19 +25,32 @@ export default function LoginForm() {
     setError("")
 
     try {
+      console.log("Attempting sign in with:", username)
       const result = await signIn("credentials", {
         redirect: false,
         username,
         password,
       })
 
+      console.log("SignIn result:", result)
+
+      // Check for successful authentication first
+      if (result?.ok) {
+        console.log("Login successful, redirecting to dashboard")
+        // Force a hard navigation to ensure session is fully established
+        window.location.href = "/dashboard" 
+        return
+      }
+
+      // Only show error if not successful
       if (result?.error) {
+        console.error("Login error:", result.error)
         setError("Invalid username or password")
         return
       }
 
-      router.push("/dashboard")
-      router.refresh()
+      // Fallback error if neither ok nor error properties exist
+      setError("Unknown authentication error")
     } catch (error) {
       console.error("Login error:", error)
       setError("An error occurred during login")

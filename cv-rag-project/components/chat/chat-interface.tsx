@@ -3,13 +3,12 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { v4 as uuidv4 } from "uuid"
 import type { Message, Chat } from "@/types/chat"
-import { apiService } from "@/lib/services/api-service"
-import { sessionService } from "@/lib/services/session-service"
-import { VisionService } from '@/lib/vision/vision-service';
 import { APIClient } from "@/lib/api-client";
 import Sidebar from "./sidebar"
+import { ErrorDisplay } from "@/components/ui/error-display"
+import { LoadingDots } from "@/components/ui/loading-dots"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 
 const debugLog = (component: string, message: string, data?: any) => {
   console.log(`[${component}] ${message}`, data || '');
@@ -24,154 +23,128 @@ const debugError = (component: string, message: string, error: any) => {
   });
 };
 
+interface TabButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  id: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+const TabButton: React.FC<TabButtonProps> = ({ 
+  id, 
+  isSelected, 
+  onSelect, 
+  onKeyDown, 
+  children,
+  ...props 
+}) => (
+  <button
+    {...props}
+    role="tab"
+    aria-selected={isSelected}
+    aria-controls={`${id}-panel`}
+    className={`tab-button ${isSelected ? "active" : ""}`}
+    onClick={onSelect}
+    onKeyDown={onKeyDown}
+    id={id}
+    tabIndex={isSelected ? 0 : -1}
+  >
+    {children}
+  </button>
+);
+
 export default function ChatInterface() {
   // Session state
-  const [sessionId, setSessionId] = useState<string>("")
+  const [sessionId, setSessionId] = useState<string>("");
 
   // Chat state
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
-  const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState("text")
-  const [recentChats, setRecentChats] = useState<Chat[]>([])
-  const [currentChatTitle, setCurrentChatTitle] = useState("")
-  const [chatStarted, setChatStarted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("text");
+  const [recentChats, setRecentChats] = useState<Chat[]>([]);
+  const [currentChatTitle, setCurrentChatTitle] = useState("");
+  const [chatStarted, setChatStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize session
+  // Initialize session and load chats
   useEffect(() => {
-    const id = sessionService.getSessionId()
-    setSessionId(id)
-
-    // Load recent chats
-    const chats = sessionService.getRecentChats()
-    setRecentChats(chats)
-  }, [])
-
-  // Save recent chats when they change
-  useEffect(() => {
-    sessionService.saveRecentChats(recentChats)
-  }, [recentChats])
+    const loadInitialChats = async () => {
+      try {
+        const chats = await APIClient.getChatSessions();
+        setRecentChats(chats);
+        if (chats.length > 0) {
+          const firstChat = chats[0];
+          setSessionId(firstChat.chat_id);
+          setCurrentChatTitle(firstChat.title);
+          setChatStarted(true);
+          await handleLoadChat(firstChat.chat_id);
+        }
+      } catch (error) {
+        debugError("Initialization", "Failed to load chats:", error);
+      }
+    };
+    
+    loadInitialChats();
+  }, []);
 
   // Scroll to bottom of messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   // Update chat title based on first message
   useEffect(() => {
     if (messages.length === 1 && messages[0].role === "user") {
-      // Create a title from the first message
-      const firstMessage = messages[0].content
-      const title = firstMessage.length > 25 ? firstMessage.substring(0, 25) + "..." : firstMessage
-      setCurrentChatTitle(title)
-      setChatStarted(true)
+      const firstMessage = messages[0].content;
+      const title = firstMessage.length > 25 
+        ? firstMessage.substring(0, 25) + "..."
+        : firstMessage;
+      setCurrentChatTitle(title);
+      setChatStarted(true);
     }
-  }, [messages])
+  }, [messages]);
 
   // Load chat history when sessionId changes
   useEffect(() => {
     if (sessionId) {
-      loadChatHistory()
+      loadChatHistory();
     }
-  }, [sessionId])
+  }, [sessionId]);
 
   // Handle file upload
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0])
-      setError(null) // Clear any previous errors
+      setFile(e.target.files[0]);
+      setError(null);
     }
-  }
+  };
 
   // Handle file upload button click
   const handleUploadClick = () => {
-    fileInputRef.current?.click()
-  }
+    fileInputRef.current?.click();
+  };
 
   // Start a new chat
-  const handleNewChat = () => {
-    // Clear chat history for the current session
-    if (sessionId) {
-      APIClient.clearChatHistory(sessionId);
-    }
-
-    // Reset current chat
-    setMessages([])
-    setCurrentChatTitle("")
-    setChatStarted(false)
-    setActiveTab("text")
-    setError(null)
-  }
-
-  // Handle image analysis
-  const handleAnalyzeImage = async () => {
-    if (!file) return
-
-    setLoading(true)
-    setError(null)
-
-    // If this is the first message, start a new chat
-    if (messages.length === 0) {
-      setChatStarted(true)
-      setCurrentChatTitle(`Analysis of ${file.name}`)
-    }
-
-    // Add user message
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "user",
-        content: `I've uploaded an image for analysis: ${file.name}`,
-        timestamp: new Date().toISOString(),
-      },
-    ])
-
+  const handleNewChat = async () => {
     try {
-      const formData = new FormData()
-      formData.append('image', file)
-      const response = await APIClient.queryDocument(formData)
-
-      // Add assistant message with results
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Here's my analysis of your potato plant:",
-          result: {
-            predicted_class: response.predicted_class,
-            confidence: response.confidence,
-            explanation: response.explanation,
-            treatment_plans: response.treatment_plans
-          },
-          timestamp: new Date().toISOString(),
-        },
-      ])
-
-      // Switch to text tab after analysis
-      setActiveTab("text")
+      const newChat = await APIClient.createChatSession("New Chat");
+      setMessages([]);
+      setCurrentChatTitle(newChat.title);
+      setChatStarted(true);
+      setActiveTab("text");
+      setError(null);
+      setSessionId(newChat.chat_id);
+      
+      setRecentChats(prevChats => [newChat, ...prevChats]);
     } catch (error) {
-      console.error("Image analysis error:", error)
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: error instanceof Error ? error.message : "Error processing the image",
-          timestamp: new Date().toISOString(),
-        },
-      ])
-    } finally {
-      setLoading(false)
-      setFile(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""
-      }
+      debugError("NewChat", "Failed to create new chat:", error);
+      setError("Failed to create new chat");
     }
-  }
+  };
 
   // Handle message submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -179,88 +152,165 @@ export default function ChatInterface() {
 
     if (!input.trim()) return;
 
-    const userMessage = input;
-    setInput("");
+    setLoading(true);
     setError(null);
 
-    // If this is the first message, start a new chat
-    if (messages.length === 0) {
-      setChatStarted(true);
-      setCurrentChatTitle(userMessage.length > 25 ? userMessage.substring(0, 25) + "..." : userMessage);
-    }
-
-    const newUserMessage = {
-      role: "user" as const,
-      content: userMessage,
-      timestamp: new Date().toISOString(),
-    };
-
-    // Add user message locally first
-    setMessages((prev) => [...prev, newUserMessage]);
-    
-    setLoading(true);
-
     try {
-      // Save user message to history
-      await APIClient.saveChatMessage(sessionId, newUserMessage);
+      // Create new chat if needed
+      if (!sessionId) {
+        const newChat = await APIClient.createChatSession(input.substring(0, 50));
+        setSessionId(newChat.chat_id);
+        setCurrentChatTitle(newChat.title);
+        setChatStarted(true);
+        setRecentChats(prevChats => [newChat, ...prevChats]);
+      }
 
-      // Send query to backend
-      const formData = new FormData();
-      formData.append('question', userMessage);
-      formData.append('session_id', sessionId);
-      const response = await APIClient.queryDocument(formData);
-
-      const assistantMessage = {
-        role: "assistant" as const,
-        content: response.answer,
+      // Prepare user message
+      const userMessage: Message = {
+        role: "user",
+        content: input,
         timestamp: new Date().toISOString(),
       };
 
-      // Add assistant message locally first
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Clear input immediately
+      setInput("");
 
-      // Save assistant message
-      await APIClient.saveChatMessage(sessionId, assistantMessage);
-    } catch (error: any) {
-      debugError("MessageSubmit", "Error in message flow:", error);
+      // Add user message to UI
+      setMessages(prev => [...prev, userMessage]);
+
+      // Send message and get response
+      const response = await APIClient.queryDocument(input, undefined, sessionId);
+
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: response.answer || response.content || "I couldn't generate a response.",
+        timestamp: new Date().toISOString(),
+      };
+
+      // Add AI message to UI
+      setMessages(prev => [...prev, assistantMessage]);
       
-      let errorMessage: Message;
-      if (error.message.includes('log in')) {
-        // Handle authentication errors
-        errorMessage = {
-          role: "system" as const,
-          content: error.message,
-          error: {
-            message: error.message,
-            status: 401
-          },
-          timestamp: new Date().toISOString(),
-        };
-        setError(error.message);
-      } else {
-        // Handle other errors
-        errorMessage = {
-          role: "assistant" as const,
-          content: "I encountered an error processing your message. Please try again.",
-          error: {
-            message: error.message,
-            status: error.response?.status,
-            data: error.response?.data
-          },
-          timestamp: new Date().toISOString(),
-        };
-      }
-      
-      setMessages((prev) => [...prev, errorMessage]);
-      
-      // Try to save the error message
+      // Try to save the messages
       try {
-        await APIClient.saveChatMessage(sessionId, errorMessage);
+        await APIClient.saveChatMessage(sessionId!, {
+          content: userMessage.content,
+          role: userMessage.role
+        });
+        await APIClient.saveChatMessage(sessionId!, {
+          content: assistantMessage.content,
+          role: assistantMessage.role
+        });
       } catch (saveError) {
-        debugError("MessageSubmit", "Failed to save error message:", saveError);
-      }
+        debugError("MessageSave", "Failed to save messages:", saveError);
+      }    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An error occurred";
+      const errorStatus = error instanceof Error && 'response' in error
+        ? (error as any).response?.status
+        : undefined;
+      const errorDetail = error instanceof Error && 'response' in error
+        ? (error as any).response?.data?.detail
+        : undefined;
+        
+      setError(errorDetail || errorMessage);
+      
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "I encountered an error. Please try again.",
+        error: {
+          message: errorDetail || errorMessage,
+          status: errorStatus,
+        },
+        timestamp: new Date().toISOString(),
+      }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle image analysis
+  const handleAnalyzeImage = async () => {
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Create new chat if needed
+      if (!sessionId) {
+        const newChat = await APIClient.createChatSession(`Analysis of ${file.name}`);
+        setSessionId(newChat.chat_id);
+        setCurrentChatTitle(newChat.title);
+        setChatStarted(true);
+        setRecentChats(prevChats => [newChat, ...prevChats]);
+      }
+
+      // Prepare user message
+      const userMessage: Message = {
+        role: "user",
+        content: `I've uploaded an image for analysis: ${file.name}`,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Add user message to UI
+      setMessages(prev => [...prev, userMessage]);
+
+      try {
+        // Save the user message
+        await APIClient.saveChatMessage(sessionId!, userMessage);
+
+        // Send the image for analysis
+        const response = await APIClient.queryDocument("", file, sessionId);
+
+        // Create and save assistant message
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: "Here's my analysis of your potato plant:",
+          result: response.result,
+          timestamp: new Date().toISOString(),
+        };
+
+        // Add AI message to UI
+        setMessages(prev => [...prev, assistantMessage]);
+        await APIClient.saveChatMessage(sessionId!, assistantMessage);
+
+        // Switch to text tab after analysis
+        setActiveTab("text");
+      } catch (error) {
+        debugError("ImageAnalysis", "Failed to analyze image:", error);
+        const errorMessage: Message = {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Error processing the image",
+          timestamp: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+
+        // Try to save the error message
+        try {
+          await APIClient.saveChatMessage(sessionId!, errorMessage);
+        } catch (saveError) {
+          debugError("ImageAnalysis", "Failed to save error message:", saveError);
+        }
+      }
+    } catch (error: any) {
+      debugError("ImageAnalysis", "Failed to create chat or analyze image:", error);
+      const errorMessage = error?.response?.data?.detail || error?.message || "An error occurred";
+      setError(errorMessage);
+      
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "I encountered an error. Please try again.",
+        error: {
+          message: errorMessage,
+          status: error?.response?.status,
+        },
+        timestamp: new Date().toISOString(),
+      }]);
+    } finally {
+      setLoading(false);
+      setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -272,43 +322,36 @@ export default function ChatInterface() {
       setLoading(true);
       setError(null);
 
-      const chat = recentChats.find((c) => c.id === chatId);
-      debugLog('ChatLoad', 'Found chat:', chat);
+      // Fetch chat history
+      const chatHistory = await APIClient.getChatHistory(chatId);
+      debugLog('ChatLoad', 'Loaded chat history:', chatHistory);
 
-      if (chat) {
-        // Add loading indicator message
-        setMessages([{
-          role: 'system',
-          content: `Loading chat "${chat.title}"...`,
-          timestamp: new Date().toISOString()
-        }]);
-
-        // Fetch the actual messages for this chat
-        const response = await APIClient.getChatHistory(sessionId);
-        debugLog('ChatLoad', 'Loaded chat messages:', response);
-
-        if (response.messages && Array.isArray(response.messages)) {
-          setMessages(response.messages);
-          setCurrentChatTitle(chat.title);
-          setChatStarted(true);
-        } else {
-          throw new Error('Invalid response format from server');
-        }
+      if (chatHistory) {
+        setMessages(chatHistory.messages || []);
+        setCurrentChatTitle(chatHistory.title || "Untitled Chat");
+        setChatStarted(true);
+        setSessionId(chatId);
       } else {
         throw new Error(`Chat with ID ${chatId} not found`);
-      }
-    } catch (error: any) {
+      }    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to load chat";
+      const errorData = error instanceof Error && 'response' in error 
+        ? (error as any).response?.data 
+        : undefined;
+      const errorStatus = error instanceof Error && 'response' in error
+        ? (error as any).response?.status
+        : undefined;
+
       debugError('ChatLoad', 'Failed to load chat:', error);
-      setError(`Failed to load chat: ${error.message}`);
+      setError(errorMessage);
       
-      // Show error in the chat
       setMessages([{
         role: 'system',
         content: 'Failed to load chat. Details:',
         error: {
-          message: error.message,
-          status: error.response?.status,
-          data: error.response?.data
+          message: errorMessage,
+          status: errorStatus,
+          data: errorData
         },
         timestamp: new Date().toISOString()
       }]);
@@ -341,8 +384,8 @@ export default function ChatInterface() {
         debugLog('ChatHistory', 'No chat history found');
         setMessages([]);
         setChatStarted(false);
-      }
-    } catch (error: any) {
+      }    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to load chat history";
       debugError('ChatHistory', 'Failed to load chat history:', error);
       // Start fresh instead of showing error
       setMessages([]);
@@ -413,145 +456,230 @@ export default function ChatInterface() {
     )
   }
 
+  // Add keyboard navigation for tabs
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const tabs = ["text", "image", "analytics"];
+    const currentIndex = tabs.indexOf(activeTab);
+
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        setActiveTab(tabs[(currentIndex - 1 + tabs.length) % tabs.length]);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        setActiveTab(tabs[(currentIndex + 1) % tabs.length]);
+        break;
+      case "Home":
+        e.preventDefault();
+        setActiveTab(tabs[0]);
+        break;
+      case "End":
+        e.preventDefault();
+        setActiveTab(tabs[tabs.length - 1]);
+        break;
+    }
+  };
+
   return (
-    <div className="app">
-      <Sidebar
-        currentChatTitle={currentChatTitle}
-        chatStarted={chatStarted}
-        onNewChat={handleNewChat}
-        onLoadChat={handleLoadChat}
-      />
+    <ErrorBoundary>
+      <div className="app">
+        <Sidebar
+          currentChatTitle={currentChatTitle}
+          chatStarted={chatStarted}
+          onNewChat={handleNewChat}
+          onLoadChat={handleLoadChat}
+        />
 
-      <div className="main-content">
-        {chatStarted && (
-          <div className="chat-header">
-            <h2>{currentChatTitle}</h2>
-          </div>
-        )}
-
-        <div className="chat-container">
-          {renderError()}
-
-          {messages.length === 0 ? (
-            <div className="welcome-container">
-              <div className="welcome-icon">🥔</div>
-              <h1>How can I help you today?</h1>
-              <p>
-                This tool can analyze potato plant images for diseases and answer questions about potato plant care.
-                Upload an image or ask a question below.
-              </p>
-
-              <div className="feature-cards">
-                <div className="feature-card">
-                  <div className="feature-icon">📊</div>
-                  <h3>Disease Classification</h3>
-                  <p>Upload images to detect Early Blight, Late Blight, or confirm healthy plants</p>
-                </div>
-                <div className="feature-card">
-                  <div className="feature-icon">💊</div>
-                  <h3>Treatment Recommendations</h3>
-                  <p>Get personalized treatment plans based on disease diagnosis</p>
-                </div>
-                <div className="feature-card">
-                  <div className="feature-icon">🔍</div>
-                  <h3>Expert Knowledge</h3>
-                  <p>Access information about potato diseases, prevention, and care</p>
-                </div>
-              </div>
+        <div className="main-content">
+          {chatStarted && (
+            <div className="chat-header">
+              <h2>{currentChatTitle}</h2>
             </div>
-          ) : (
-            <div className="messages">
-              {messages.map(renderMessage)}
-              <div ref={messagesEndRef} />
+          )}
 
-              {loading && (
-                <div className="message assistant-message">
-                  <div className="message-avatar">🤖</div>
-                  <div className="message-content">
-                    <div className="typing-indicator">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
+          <div className="chat-container">
+            {error && (
+              <ErrorDisplay 
+                error={{ message: error }} 
+                onDismiss={() => setError(null)} 
+              />
+            )}
+
+            {messages.length === 0 ? (
+              <div className="welcome-container">
+                <div className="welcome-icon">🥔</div>
+                <h1>How can I help you today?</h1>
+                <p>
+                  This tool can analyze potato plant images for diseases and answer questions about potato plant care.
+                  Upload an image or ask a question below.
+                </p>
+
+                <div className="feature-cards">
+                  <div className="feature-card">
+                    <div className="feature-icon">📊</div>
+                    <h3>Disease Classification</h3>
+                    <p>Upload images to detect Early Blight, Late Blight, or confirm healthy plants</p>
+                  </div>
+                  <div className="feature-card">
+                    <div className="feature-icon">💊</div>
+                    <h3>Treatment Recommendations</h3>
+                    <p>Get personalized treatment plans based on disease diagnosis</p>
+                  </div>
+                  <div className="feature-card">
+                    <div className="feature-icon">🔍</div>
+                    <h3>Expert Knowledge</h3>
+                    <p>Access information about potato diseases, prevention, and care</p>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+              </div>
+            ) : (
+              <div className="messages">
+                {messages.map(renderMessage)}
+                <div ref={messagesEndRef} />
 
-        {/* File Upload Section */}
-        <div className="upload-section">
-          {activeTab === "image" && (
-            <div className="file-upload">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/*"
-                style={{ display: "none" }}
-              />
-
-              <div className="file-upload-content">
-                {file ? (
-                  <>
-                    <div className="file-name">{file.name}</div>
-                    <button className="analyze-button" onClick={handleAnalyzeImage} disabled={loading}>
-                      {loading ? "Analyzing..." : "Analyze Image"}
-                    </button>
-                  </>
-                ) : (
-                  <button className="upload-button" onClick={handleUploadClick}>
-                    <span>📤</span>
-                    <span>Upload Image</span>
-                  </button>
+                {loading && (
+                  <div className="message assistant-message">
+                    <div className="message-avatar">🤖</div>
+                    <div className="message-content">
+                      <LoadingDots className="text-muted-foreground" />
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Input Section */}
-        <div className="input-section">
-          <div className="tabs">
-            <button
-              className={`tab-button ${activeTab === "text" ? "active" : ""}`}
-              onClick={() => setActiveTab("text")}
-            >
-              Text
-            </button>
-            <button
-              className={`tab-button ${activeTab === "image" ? "active" : ""}`}
-              onClick={() => setActiveTab("image")}
-            >
-              <span>📷</span>
-              <span>Image</span>
-            </button>
-            <button
-              className={`tab-button ${activeTab === "analytics" ? "active" : ""}`}
-              onClick={() => setActiveTab("analytics")}
-            >
-              <span>📊</span>
-              <span>Analytics</span>
-            </button>
+            )}
           </div>
 
-          <form onSubmit={handleSubmit} className="input-form">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your question here..."
-              disabled={loading || activeTab !== "text"}
-            />
-            <button type="submit" disabled={loading || !input.trim() || activeTab !== "text"} className="send-button">
-              ➤
-            </button>
-          </form>
+          <div className="input-section">
+            <div 
+              className="tabs" 
+              role="tablist" 
+              aria-orientation="horizontal"
+              aria-label="Chat input options"
+            >
+              <TabButton
+                id="text-tab"
+                isSelected={activeTab === "text"}
+                onSelect={() => setActiveTab("text")}
+                onKeyDown={handleTabKeyDown}
+              >
+                <span>Text</span>
+              </TabButton>
+              <TabButton
+                id="image-tab"
+                isSelected={activeTab === "image"}
+                onSelect={() => setActiveTab("image")}
+                onKeyDown={handleTabKeyDown}
+              >
+                <span aria-hidden="true">📷</span>
+                <span>Image</span>
+              </TabButton>
+              <TabButton
+                id="analytics-tab"
+                isSelected={activeTab === "analytics"}
+                onSelect={() => setActiveTab("analytics")}
+                onKeyDown={handleTabKeyDown}
+              >
+                <span aria-hidden="true">📊</span>
+                <span>Analytics</span>
+              </TabButton>
+            </div>
 
-          <div className="disclaimer">Powered by Next.js, TensorFlow, and OpenAI GPT-4</div>
+            <div 
+              role="tabpanel" 
+              id="text-panel"
+              aria-labelledby="text-tab"
+              hidden={activeTab !== "text"}
+            >
+              <form onSubmit={handleSubmit} className="input-form">
+                <div className="input-wrapper">
+                  <label htmlFor="chat-input" className="sr-only">Type your message</label>
+                  <input
+                    id="chat-input"
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Type your question here..."
+                    disabled={loading || activeTab !== "text"}
+                    className="chat-input"
+                    aria-label="Chat input"
+                  />
+                  <button 
+                    type="submit" 
+                    disabled={loading || !input.trim() || activeTab !== "text"} 
+                    className="send-button"
+                    aria-label="Send message"
+                  >
+                    <span aria-hidden="true">➤</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div 
+              role="tabpanel" 
+              id="image-panel"
+              aria-labelledby="image-tab"
+              hidden={activeTab !== "image"}
+            >
+              <div className="file-upload">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                  aria-label="Upload image file"
+                  title="Upload image file"
+                />
+
+                <div className="file-upload-content">
+                  {file ? (
+                    <>
+                      <div className="file-name">{file.name}</div>
+                      <button 
+                        className="analyze-button" 
+                        onClick={handleAnalyzeImage} 
+                        disabled={loading}
+                        aria-label={loading ? "Analyzing image..." : "Analyze image"}
+                      >
+                        {loading ? (
+                          <span className="loading-indicator" role="status">
+                            <span className="loading-dot" aria-hidden="true"></span>
+                            <span className="loading-dot" aria-hidden="true"></span>
+                            <span className="loading-dot" aria-hidden="true"></span>
+                            <span className="sr-only">Analyzing image...</span>
+                          </span>
+                        ) : (
+                          "Analyze Image"
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <button 
+                      className="upload-button" 
+                      onClick={handleUploadClick}
+                      aria-label="Choose file to upload"
+                    >
+                      <span aria-hidden="true">📤</span>
+                      <span>Upload Image</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div 
+              role="tabpanel" 
+              id="analytics-panel"
+              aria-labelledby="analytics-tab"
+              hidden={activeTab !== "analytics"}
+            >
+              {/* Analytics content */}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </ErrorBoundary>
   )
 }

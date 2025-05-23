@@ -8,6 +8,26 @@ export const sessionService = {
 
   // Get the current session ID or create a new one
   getSessionId() {
+    // Import at runtime to avoid circular dependencies
+    const { APIClient } = require('../api-client')
+
+    // First, check if we have a valid API token (from login)
+    const authToken = APIClient.getToken()
+    if (authToken) {
+      console.log('[SessionService] Using authentication token as session ID:', authToken)
+      
+      // Store this token as the session ID for future reference
+      if (typeof window !== "undefined") {
+        localStorage.setItem(this.storageKey, JSON.stringify({
+          id: authToken,
+          createdAt: new Date().toISOString(),
+        }))
+      }
+      
+      return authToken
+    }
+    
+    // Fall back to stored session if no auth token
     if (typeof window === "undefined") {
       return uuidv4() // For server-side rendering
     }
@@ -17,6 +37,7 @@ export const sessionService = {
     if (storedSession) {
       try {
         const sessionData = JSON.parse(storedSession)
+        console.log('[SessionService] Using stored session ID:', sessionData.id)
         return sessionData.id
       } catch (e) {
         console.error("Error parsing session data:", e)

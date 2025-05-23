@@ -38,19 +38,25 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid credentials");
         }
 
-        try {          
+        try {
+          // Create Basic Auth token
+          const token = btoa(`${credentials.username}:${credentials.password}`);
+
+          // Try to login
           const response = await APIClient.login({
             username: credentials.username,
             password: credentials.password,
           });
 
-          if (response.session_id) {
-            APIClient.setToken(response.session_id);
+          if (response) {
+            // Store the Basic Auth token
+            APIClient.setToken(token);
+
             return {
               id: credentials.username,
               name: credentials.username,
               username: credentials.username,
-              accessToken: response.session_id, // Using session_id as the access token
+              accessToken: token,
             };
           }
           return null;
@@ -78,6 +84,9 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.accessToken = token.accessToken;
         session.user.username = token.username;
+
+        // Set the token in APIClient when session is created/updated
+        APIClient.setToken(token.accessToken);
       }
       return session;
     },
