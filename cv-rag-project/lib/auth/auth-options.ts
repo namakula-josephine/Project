@@ -1,29 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { APIClient } from "@/lib/api-client";
-import { DefaultSession, DefaultUser } from "next-auth";
-import "next-auth/jwt";
-
-declare module "next-auth" {
-  interface Session extends DefaultSession {
-    user: {
-      username: string;
-      accessToken: string;
-    } & DefaultSession["user"];
-  }
-
-  interface User extends DefaultUser {
-    username: string;
-    accessToken: string;
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    username: string;
-    accessToken: string;
-  }
-}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,

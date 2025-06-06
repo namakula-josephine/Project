@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-
+import React from "react"
 import { useState, useEffect, useRef } from "react"
 import type { Message, Chat } from "@/types/chat"
 import { APIClient } from "@/lib/api-client";
@@ -22,36 +21,6 @@ const debugError = (component: string, message: string, error: any) => {
     status: error.response?.status,
   });
 };
-
-interface TabButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  id: string;
-  isSelected: boolean;
-  onSelect: () => void;
-}
-
-const TabButton: React.FC<TabButtonProps> = ({ 
-  id, 
-  isSelected, 
-  onSelect, 
-  onKeyDown, 
-  children,
-  ...props 
-}) => (
-  <button
-    {...props}
-    role="tab"
-    aria-selected={isSelected ? "true" : "false"}
-    aria-controls={`${id}-panel`}
-    className={`tab-button ${isSelected ? "active" : ""}`}
-    onClick={onSelect}
-    onKeyDown={onKeyDown}
-    id={id}
-    tabIndex={isSelected ? 0 : -1}
-    type="button"
-  >
-    {children}
-  </button>
-);
 
 export default function ChatInterface() {
   // Session state
@@ -695,41 +664,54 @@ export default function ChatInterface() {
                 )}
               </div>
             )}
-          </div>
-
-          <div className="input-section">
+          </div>          <div className="input-section">
             <div 
               className="tabs" 
               role="tablist" 
               aria-orientation="horizontal"
               aria-label="Chat input options"
             >
-              <TabButton
-                id="text-tab"
-                isSelected={activeTab === "text"}
-                onSelect={() => setActiveTab("text")}
+              <button
+                role="tab"
+                {...(activeTab === "text" ? { "aria-selected": "true" } : { "aria-selected": "false" })}
+                aria-controls="text-panel"
+                className={`tab-button ${activeTab === "text" ? "active" : ""}`}
+                onClick={() => setActiveTab("text")}
                 onKeyDown={handleTabKeyDown}
+                id="text-tab"
+                tabIndex={activeTab === "text" ? 0 : -1}
+                type="button"
               >
                 <span>Text</span>
-              </TabButton>
-              <TabButton
-                id="image-tab"
-                isSelected={activeTab === "image"}
-                onSelect={() => setActiveTab("image")}
+              </button>
+              <button
+                role="tab"
+                {...(activeTab === "image" ? { "aria-selected": "true" } : { "aria-selected": "false" })}
+                aria-controls="image-panel"
+                className={`tab-button ${activeTab === "image" ? "active" : ""}`}
+                onClick={() => setActiveTab("image")}
                 onKeyDown={handleTabKeyDown}
+                id="image-tab"
+                tabIndex={activeTab === "image" ? 0 : -1}
+                type="button"
               >
                 <span aria-hidden="true">📷</span>
                 <span>Image</span>
-              </TabButton>
-              <TabButton
-                id="analytics-tab"
-                isSelected={activeTab === "analytics"}
-                onSelect={() => setActiveTab("analytics")}
+              </button>
+              <button
+                role="tab"
+                {...(activeTab === "analytics" ? { "aria-selected": "true" } : { "aria-selected": "false" })}
+                aria-controls="analytics-panel"
+                className={`tab-button ${activeTab === "analytics" ? "active" : ""}`}
+                onClick={() => setActiveTab("analytics")}
                 onKeyDown={handleTabKeyDown}
+                id="analytics-tab"
+                tabIndex={activeTab === "analytics" ? 0 : -1}
+                type="button"
               >
                 <span aria-hidden="true">📊</span>
                 <span>Analytics</span>
-              </TabButton>
+              </button>
             </div>
 
             <div 
