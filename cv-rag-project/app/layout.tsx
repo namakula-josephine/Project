@@ -2,7 +2,6 @@ import type React from "react"
 import "./globals.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
-import { SessionProvider } from "@/components/session-provider"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth/auth-options"
 

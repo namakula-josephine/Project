@@ -40,13 +40,14 @@ const TabButton: React.FC<TabButtonProps> = ({
   <button
     {...props}
     role="tab"
-    aria-selected={isSelected}
+    aria-selected={isSelected ? "true" : "false"}
     aria-controls={`${id}-panel`}
     className={`tab-button ${isSelected ? "active" : ""}`}
     onClick={onSelect}
     onKeyDown={onKeyDown}
     id={id}
     tabIndex={isSelected ? 0 : -1}
+    type="button"
   >
     {children}
   </button>
