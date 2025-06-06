@@ -40,7 +40,7 @@ const TabButton: React.FC<TabButtonProps> = ({
   <button
     {...props}
     role="tab"
-    aria-selected={isSelected ? "true" : "false"}
+    aria-selected={isSelected}
     aria-controls={`${id}-panel`}
     className={`tab-button ${isSelected ? "active" : ""}`}
     onClick={onSelect}
